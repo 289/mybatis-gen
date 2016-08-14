@@ -15,9 +15,7 @@
  */
 package org.mybatis.generator.codegen.mybatis3.model;
 
-import static org.mybatis.generator.internal.util.JavaBeansUtil.getJavaBeansField;
-import static org.mybatis.generator.internal.util.JavaBeansUtil.getJavaBeansGetter;
-import static org.mybatis.generator.internal.util.JavaBeansUtil.getJavaBeansSetter;
+import static org.mybatis.generator.internal.util.JavaBeansUtil.*;
 import static org.mybatis.generator.internal.util.messages.Messages.getString;
 
 import java.util.ArrayList;
@@ -110,6 +108,12 @@ public class BaseRecordGenerator extends AbstractJavaGenerator {
                 }
             }
         }
+
+        if(topLevelClass.getSuperClass().getShortName().equals("DbEntity")){
+            topLevelClass.addMethod(getUpdate(context, introspectedTable));
+            topLevelClass.addMethod(getInitMirror(context, introspectedTable));
+        }
+
 
         List<CompilationUnit> answer = new ArrayList<CompilationUnit>();
         if (context.getPlugins().modelBaseRecordClassGenerated(

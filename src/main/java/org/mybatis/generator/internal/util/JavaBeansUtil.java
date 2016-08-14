@@ -270,11 +270,18 @@ public class JavaBeansUtil {
         Method method = new Method();
         method.setVisibility(JavaVisibility.PUBLIC);
         method.setName(getSetterMethodName(property));
-        method.addParameter(new Parameter(fqjt, property));
+        method.addParameter(new Parameter(true, fqjt, property));
         context.getCommentGenerator().addSetterComment(method,
                 introspectedTable, introspectedColumn);
 
+        FullyQualifiedJavaType type = new FullyQualifiedJavaType(
+                introspectedTable.getBaseRecordType());
+
         StringBuilder sb = new StringBuilder();
+        sb.append("if(this.").append(property).append(" != null && ")
+                .append("this.").append(property).append(".equals(").append(property).append(")){return;}\n")
+                .append("Transaction transaction = Transaction.current();\n")
+                .append("if(transaction == null || isMirror){\n");
         if (introspectedColumn.isStringColumn() && isTrimStringsEnabled(introspectedColumn)) {
             sb.append("this."); //$NON-NLS-1$
             sb.append(property);
@@ -283,16 +290,74 @@ public class JavaBeansUtil {
             sb.append(" == null ? null : "); //$NON-NLS-1$
             sb.append(property);
             sb.append(".trim();"); //$NON-NLS-1$
-            method.addBodyLine(sb.toString());
         } else {
             sb.append("this."); //$NON-NLS-1$
             sb.append(property);
             sb.append(" = "); //$NON-NLS-1$
             sb.append(property);
             sb.append(';');
-            method.addBodyLine(sb.toString());
         }
+        sb.append("}\n")
+                .append("final ").append(fqjt.getShortName()).append(" curr =").append("this.").append(property).append(";\n")
+                .append("transaction.addTRecord(new TransLog() {\n" +
+                        "                    @Override\n" +
+                        "                    public void commit() {\n")
+                .append(type.getShortName()).append(" ").append(type.getShortName().toLowerCase())
+                .append("= getMirror();\n")
+                .append(type.getShortName().toLowerCase()).append(".").append(method.getName())
+                .append("(").append(property).append(");\n")
+                .append(type.getShortName().toLowerCase()).append(".onUpdate();\n")
+                .append("}\n")
+                .append("@Override\n" +
+                        "                    public void rollback() {\n")
+                .append(type.getShortName()).append(".this.").append(property).append(" = curr;\n")
+                .append("}\n")
+                .append("});");
+        method.addBodyLine(sb.toString());
+        return method;
+    }
 
+    public static Method getInitMirror(Context context, IntrospectedTable introspectedTable) {
+
+        Method method = new Method();
+        method.addAnnotation("@Override");
+        method.setVisibility(JavaVisibility.PUBLIC);
+        method.setName("initMirror");
+        context.getCommentGenerator().addGeneralMethodComment(method,
+                introspectedTable);
+
+        FullyQualifiedJavaType type = new FullyQualifiedJavaType(
+                introspectedTable.getBaseRecordType());
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(type.getShortName()).append(" ").append(type.getShortName().toLowerCase())
+                .append(" = new ").append(type.getShortName()).append("();\n")
+                .append(type.getShortName().toLowerCase()).append(".isMirror = true;\n")
+                .append("mirror = ").append(type.getShortName().toLowerCase()).append(";")
+        ;
+        method.addBodyLine(sb.toString());
+        return method;
+    }
+
+    public static Method getUpdate(Context context, IntrospectedTable table) {
+
+        Method method = new Method();
+        method.addAnnotation("@Override");
+        method.setVisibility(JavaVisibility.PUBLIC);
+        method.setName("update");
+        context.getCommentGenerator().addGeneralMethodComment(method,table);
+
+        FullyQualifiedJavaType type =
+                new FullyQualifiedJavaType(table.getBaseRecordType());
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(type.getShortName()).append(" mirror = getMirror();\n")
+                .append("MapperMgr.getMapper(").append(type.getShortName())
+                .append("Mapper.class)")
+                .append(".updateByPrimaryKeySelective(mirror);\n");
+        table.getBaseColumns().forEach(col ->
+                sb.append(col.getJavaProperty()).append(" = null;\n"));
+        method.addBodyLine(sb.toString());
         return method;
     }
 

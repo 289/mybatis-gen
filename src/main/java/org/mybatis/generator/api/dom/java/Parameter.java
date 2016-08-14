@@ -25,6 +25,7 @@ public class Parameter {
     private String name;
     private FullyQualifiedJavaType type;
     private boolean isVarargs;
+    private boolean isFinal;
 
     private List<String> annotations;
 
@@ -38,6 +39,11 @@ public class Parameter {
 
     public Parameter(FullyQualifiedJavaType type, String name) {
         this(type, name, false);
+    }
+
+    public Parameter(boolean isFinal, FullyQualifiedJavaType type, String name) {
+        this(type, name, false);
+        this.isFinal = isFinal;
     }
 
     public Parameter(FullyQualifiedJavaType type, String name, String annotation) {
@@ -78,6 +84,10 @@ public class Parameter {
         for (String annotation : annotations) {
             sb.append(annotation);
             sb.append(' ');
+        }
+
+        if(isFinal){
+            sb.append("final ");
         }
 
         sb.append(JavaDomUtils.calculateTypeName(compilationUnit, type));

@@ -131,6 +131,15 @@ public class TopLevelClass extends InnerClass implements CompilationUnit {
             sb.append(importString);
             newLine(sb);
         }
+        FullyQualifiedJavaType type = getSuperClass();
+        if(type != null && type.getShortName().equals("DbEntity")){
+            sb.append("import mmo.db.trans.TransLog;\n")
+                    .append("import mmo.db.trans.Transaction;\n")
+                    .append("import mmo.db.MapperMgr;\n")
+                    .append("import mmo.db.role.mapper.RoleMapper;\n")
+            ;
+        }
+
 
         if (importStrings.size() > 0) {
             newLine(sb);
