@@ -15,21 +15,17 @@
  */
 package org.mybatis.generator.internal.util;
 
-import static org.mybatis.generator.internal.util.StringUtility.isTrue;
+import org.mybatis.generator.api.IntrospectedColumn;
+import org.mybatis.generator.api.IntrospectedTable;
+import org.mybatis.generator.api.dom.java.*;
+import org.mybatis.generator.config.Context;
+import org.mybatis.generator.config.PropertyRegistry;
+import org.mybatis.generator.config.TableConfiguration;
 
 import java.util.Locale;
 import java.util.Properties;
 
-import org.mybatis.generator.api.IntrospectedColumn;
-import org.mybatis.generator.api.IntrospectedTable;
-import org.mybatis.generator.api.dom.java.Field;
-import org.mybatis.generator.api.dom.java.FullyQualifiedJavaType;
-import org.mybatis.generator.api.dom.java.JavaVisibility;
-import org.mybatis.generator.api.dom.java.Method;
-import org.mybatis.generator.api.dom.java.Parameter;
-import org.mybatis.generator.config.Context;
-import org.mybatis.generator.config.PropertyRegistry;
-import org.mybatis.generator.config.TableConfiguration;
+import static org.mybatis.generator.internal.util.StringUtility.isTrue;
 
 /**
  * The Class JavaBeansUtil.
@@ -277,64 +273,78 @@ public class JavaBeansUtil {
         FullyQualifiedJavaType type = new FullyQualifiedJavaType(
                 introspectedTable.getBaseRecordType());
 
+        StringBuilder setValStr = new StringBuilder();
+        if (introspectedColumn.isStringColumn() && isTrimStringsEnabled(introspectedColumn)) {
+            setValStr.append("this."); //$NON-NLS-1$
+            setValStr.append(property);
+            setValStr.append(" = "); //$NON-NLS-1$
+            setValStr.append(property);
+            setValStr.append(" == null ? null : "); //$NON-NLS-1$
+            setValStr.append(property);
+            setValStr.append(".trim();"); //$NON-NLS-1$
+        } else {
+            setValStr.append("this."); //$NON-NLS-1$
+            setValStr.append(property);
+            setValStr.append(" = "); //$NON-NLS-1$
+            setValStr.append(property);
+            setValStr.append(';');
+        }
+
+        String clazz = type.getShortName();
+        String clazzLowerCase = type.getShortName().toLowerCase();
+
         StringBuilder sb = new StringBuilder();
         sb.append("if(this.").append(property).append(" != null && ")
                 .append("this.").append(property).append(".equals(").append(property).append(")){return;}\n")
+                .append("if(isMirror){ ").append(setValStr.toString()).append(" return; }")
                 .append("Transaction transaction = Transaction.current();\n")
-                .append("if(transaction == null || isMirror){\n");
-        if (introspectedColumn.isStringColumn() && isTrimStringsEnabled(introspectedColumn)) {
-            sb.append("this."); //$NON-NLS-1$
-            sb.append(property);
-            sb.append(" = "); //$NON-NLS-1$
-            sb.append(property);
-            sb.append(" == null ? null : "); //$NON-NLS-1$
-            sb.append(property);
-            sb.append(".trim();"); //$NON-NLS-1$
-        } else {
-            sb.append("this."); //$NON-NLS-1$
-            sb.append(property);
-            sb.append(" = "); //$NON-NLS-1$
-            sb.append(property);
-            sb.append(';');
-        }
-        sb.append("}\n")
+                .append("if(transaction != null){\n")
                 .append("final ").append(fqjt.getShortName()).append(" curr =").append("this.").append(property).append(";\n")
                 .append("transaction.addTRecord(new TransLog() {\n" +
                         "                    @Override\n" +
                         "                    public void commit() {\n")
-                .append(type.getShortName()).append(" ").append(type.getShortName().toLowerCase())
-                .append("= getMirror();\n")
-                .append(type.getShortName().toLowerCase()).append(".").append(method.getName())
-                .append("(").append(property).append(");\n")
-                .append(type.getShortName().toLowerCase()).append(".onUpdate();\n")
+                .append(clazz).append(" ").append(clazzLowerCase).append("= getMirror();\n")
+                .append(clazzLowerCase).append(".").append(method.getName()).append("(").append(property).append(");\n")
+                .append(clazzLowerCase).append(".onUpdate();\n")
                 .append("}\n")
                 .append("@Override\n" +
                         "                    public void rollback() {\n")
-                .append(type.getShortName()).append(".this.").append(property).append(" = curr;\n")
+                .append(clazz).append(".this.").append(property).append(" = curr;\n")
                 .append("}\n")
-                .append("});");
+                .append("});\n")
+                .append("} else{ ")
+                .append(clazz).append(" ").append(clazzLowerCase).append(" = getMirror();\n")
+                .append(clazzLowerCase).append(".").append(method.getName()).append("(").append(property).append(");\n")
+                .append(clazzLowerCase).append(".onUpdate();\n")
+                .append("}\n")
+                .append(setValStr.toString());
         method.addBodyLine(sb.toString());
         return method;
     }
 
-    public static Method getInitMirror(Context context, IntrospectedTable introspectedTable) {
+    public static Method getInitMirror(Context context, IntrospectedTable table) {
 
         Method method = new Method();
         method.addAnnotation("@Override");
         method.setVisibility(JavaVisibility.PUBLIC);
         method.setName("initMirror");
         context.getCommentGenerator().addGeneralMethodComment(method,
-                introspectedTable);
+                table);
 
         FullyQualifiedJavaType type = new FullyQualifiedJavaType(
-                introspectedTable.getBaseRecordType());
+                table.getBaseRecordType());
 
         StringBuilder sb = new StringBuilder();
         sb.append(type.getShortName()).append(" ").append(type.getShortName().toLowerCase())
                 .append(" = new ").append(type.getShortName()).append("();\n")
-                .append(type.getShortName().toLowerCase()).append(".isMirror = true;\n")
-                .append("mirror = ").append(type.getShortName().toLowerCase()).append(";")
-        ;
+                .append(type.getShortName().toLowerCase()).append(".isMirror = true;\n");
+        if(!table.getPrimaryKeyColumns().isEmpty()){
+            for (IntrospectedColumn column : table.getPrimaryKeyColumns()) {
+                sb.append(type.getShortName().toLowerCase()).append(".")
+                        .append(column.getJavaProperty()).append(" = this.").append(column.getJavaProperty()).append(";\n");
+            }
+        }
+        sb.append("mirror = ").append(type.getShortName().toLowerCase()).append(";");
         method.addBodyLine(sb.toString());
         return method;
     }
@@ -352,11 +362,15 @@ public class JavaBeansUtil {
 
         StringBuilder sb = new StringBuilder();
         sb.append(type.getShortName()).append(" mirror = getMirror();\n")
+                .append("if(mirror.getOp().equals(Mark.UPDATE)){\n")
                 .append("MapperMgr.getMapper(").append(type.getShortName())
                 .append("Mapper.class)")
                 .append(".updateByPrimaryKeySelective(mirror);\n");
-        table.getBaseColumns().forEach(col ->
-                sb.append(col.getJavaProperty()).append(" = null;\n"));
+        for (IntrospectedColumn column : table.getBaseColumns()) {
+            sb.append(column.getJavaProperty()).append(" = null;\n");
+        }
+        sb.append("mirror.resetMark();\n");
+        sb.append("}");
         method.addBodyLine(sb.toString());
         return method;
     }
