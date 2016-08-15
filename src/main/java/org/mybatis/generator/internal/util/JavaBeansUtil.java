@@ -337,14 +337,14 @@ public class JavaBeansUtil {
         StringBuilder sb = new StringBuilder();
         sb.append(type.getShortName()).append(" ").append(type.getShortName().toLowerCase())
                 .append(" = new ").append(type.getShortName()).append("();\n")
-                .append(type.getShortName().toLowerCase()).append(".isMirror = true;\n");
+                .append(type.getShortName().toLowerCase()).append(".initMirror0();\n");
         if(!table.getPrimaryKeyColumns().isEmpty()){
             for (IntrospectedColumn column : table.getPrimaryKeyColumns()) {
                 sb.append(type.getShortName().toLowerCase()).append(".")
                         .append(column.getJavaProperty()).append(" = this.").append(column.getJavaProperty()).append(";\n");
             }
         }
-        sb.append("mirror = ").append(type.getShortName().toLowerCase()).append(";");
+        sb.append("mirrorEntity = ").append(type.getShortName().toLowerCase()).append(";");
         method.addBodyLine(sb.toString());
         return method;
     }
@@ -361,16 +361,12 @@ public class JavaBeansUtil {
                 new FullyQualifiedJavaType(table.getBaseRecordType());
 
         StringBuilder sb = new StringBuilder();
-        sb.append(type.getShortName()).append(" mirror = getMirror();\n")
-                .append("if(mirror.getOp().equals(Mark.UPDATE)){\n")
-                .append("MapperMgr.getMapper(").append(type.getShortName())
-                .append("Mapper.class)")
-                .append(".updateByPrimaryKeySelective(mirror);\n");
-        for (IntrospectedColumn column : table.getBaseColumns()) {
-            sb.append(column.getJavaProperty()).append(" = null;\n");
-        }
-        sb.append("mirror.resetMark();\n");
-        sb.append("}");
+        sb.append("if (mirrorEntity != null && mirrorEntity.getMark().equals(Mark.UPDATE)) {\n")
+                .append(type.getShortName()).append(" mirror = mirrorEntity.cast();\n")
+                .append("MapperMgr.getMapper(").append(type.getShortName()).append("Mapper.class)")
+                .append(".updateByPrimaryKeySelective(mirror);\n")
+                .append("mirrorEntity = null;\n")
+                .append("}");
         method.addBodyLine(sb.toString());
         return method;
     }
