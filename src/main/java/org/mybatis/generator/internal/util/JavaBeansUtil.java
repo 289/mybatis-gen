@@ -303,9 +303,14 @@ public class JavaBeansUtil {
                 .append("transaction.addTRecord(new TransLog() {\n" +
                         "                    @Override\n" +
                         "                    public void commit() {\n")
+                .append("mirrorLock.lock();\n")
+                .append("try{\n")
                 .append(clazz).append(" ").append(clazzLowerCase).append("= getMirror();\n")
                 .append(clazzLowerCase).append(".").append(method.getName()).append("(").append(property).append(");\n")
                 .append(clazzLowerCase).append(".onUpdate();\n")
+                .append("} finally {\n")
+                .append("mirrorLock.unlock();\n")
+                .append("}\n")
                 .append("}\n")
                 .append("@Override\n" +
                         "                    public void rollback() {\n")
@@ -313,9 +318,14 @@ public class JavaBeansUtil {
                 .append("}\n")
                 .append("});\n")
                 .append("} else{ ")
-                .append(clazz).append(" ").append(clazzLowerCase).append(" = getMirror();\n")
+                .append("mirrorLock.lock();\n")
+                .append("try{\n")
+                .append(clazz).append(" ").append(clazzLowerCase).append("= getMirror();\n")
                 .append(clazzLowerCase).append(".").append(method.getName()).append("(").append(property).append(");\n")
                 .append(clazzLowerCase).append(".onUpdate();\n")
+                .append("} finally {\n")
+                .append("mirrorLock.unlock();\n")
+                .append("}\n")
                 .append("}\n")
                 .append(setValStr.toString());
         method.addBodyLine(sb.toString());
@@ -361,11 +371,17 @@ public class JavaBeansUtil {
                 new FullyQualifiedJavaType(table.getBaseRecordType());
 
         StringBuilder sb = new StringBuilder();
-        sb.append("if (mirrorEntity != null && mirrorEntity.getMark().equals(Mark.UPDATE)) {\n")
-                .append(type.getShortName()).append(" mirror = mirrorEntity.cast();\n")
+        sb.append("if(mirrorLock.tryLock()){\n")
+                .append("try{\n")
+                .append("Role mirror;\n")
+                .append("if (mirrorEntity != null && (mirror = mirrorEntity.cast()).mark == UPDATE) {")
                 .append("MapperMgr.getMapper(").append(type.getShortName()).append("Mapper.class)")
                 .append(".updateByPrimaryKeySelective(mirror);\n")
                 .append("mirrorEntity = null;\n")
+                .append("}\n")
+                .append("} finally {\n")
+                .append("mirrorLock.unlock();\n")
+                .append("}\n")
                 .append("}");
         method.addBodyLine(sb.toString());
         return method;
