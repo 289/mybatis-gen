@@ -371,16 +371,19 @@ public class JavaBeansUtil {
                 new FullyQualifiedJavaType(table.getBaseRecordType());
 
         StringBuilder sb = new StringBuilder();
-        sb.append("if(mirrorLock.tryLock()){\n")
+        sb.append("if(mirrorEntity != null && mirrorLock.tryLock()){\n")
+                .append("Role mirror = null;\n")
                 .append("try{\n")
-                .append("Role mirror;\n")
-                .append("if (mirrorEntity != null && (mirror = mirrorEntity.cast()).mark == UPDATE) {")
-                .append("MapperMgr.getMapper(").append(type.getShortName()).append("Mapper.class)")
-                .append(".updateByPrimaryKeySelective(mirror);\n")
+                .append("if (mirrorEntity != null) {\n")
+                .append("mirror = mirrorEntity.cast();\n")
                 .append("mirrorEntity = null;\n")
                 .append("}\n")
                 .append("} finally {\n")
                 .append("mirrorLock.unlock();\n")
+                .append("}\n")
+                .append("if(mirror != null && mirror.mark == UPDATE){\n")
+                .append("MapperMgr.getMapper(").append(type.getShortName()).append("Mapper.class)")
+                .append(".updateByPrimaryKeySelective(mirror);\n")
                 .append("}\n")
                 .append("}");
         method.addBodyLine(sb.toString());
