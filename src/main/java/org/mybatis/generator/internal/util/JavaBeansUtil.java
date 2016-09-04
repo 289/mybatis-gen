@@ -101,6 +101,21 @@ public class JavaBeansUtil {
         return sb.toString();
     }
 
+    public static String getMirrorSetterMethodName(String property) {
+        StringBuilder sb = new StringBuilder();
+
+        sb.append(property);
+        if (Character.isLowerCase(sb.charAt(0))) {
+            if (sb.length() == 1 || !Character.isUpperCase(sb.charAt(1))) {
+                sb.setCharAt(0, Character.toUpperCase(sb.charAt(0)));
+            }
+        }
+
+        sb.insert(0, "setMirror"); //$NON-NLS-1$
+
+        return sb.toString();
+    }
+
     /**
      * Gets the camel case string.
      *
@@ -296,38 +311,76 @@ public class JavaBeansUtil {
         StringBuilder sb = new StringBuilder();
         sb.append("if(this.").append(property).append(" != null && ")
                 .append("this.").append(property).append(".equals(").append(property).append(")){return;}\n")
-                .append("if(isMirror){ ").append(setValStr.toString()).append(" return; }")
-                .append("Transaction transaction = Transaction.current();\n")
-                .append("if(transaction != null){\n")
+                .append("if(!isMirror){ ")
                 .append("final ").append(fqjt.getShortName()).append(" curr =").append("this.").append(property).append(";\n")
-                .append("transaction.addTRecord(new TransLog() {\n" +
-                        "                    @Override\n" +
-                        "                    public void commit() {\n")
-                .append("mirrorLock.lock();\n")
-                .append("try{\n")
-                .append(clazz).append(" ").append(clazzLowerCase).append("= getMirror();\n")
-                .append(clazzLowerCase).append(".").append(method.getName()).append("(").append(property).append(");\n")
-                .append(clazzLowerCase).append(".onUpdate();\n")
-                .append("} finally {\n")
-                .append("mirrorLock.unlock();\n")
-                .append("}\n")
-                .append("}\n")
-                .append("@Override\n" +
-                        "                    public void rollback() {\n")
+                .append("Transaction transaction = Transaction.current();\n")
+                .append("boolean addLogSucc = transaction != null && transaction.addLog(new TransLog() {\n")
+                .append("                    @Override\n")
+                .append("                    public void commit() {\n")
+                .append(getMirrorSetterMethodName(property)).append("(").append(property).append(");\n")
+                .append("}\n\n")
+                .append("@Override\n")
+                .append("public void rollback() {\n")
                 .append(clazz).append(".this.").append(property).append(" = curr;\n")
                 .append("}\n")
                 .append("});\n")
-                .append("} else{ ")
-                .append("mirrorLock.lock();\n")
-                .append("try{\n")
-                .append(clazz).append(" ").append(clazzLowerCase).append("= getMirror();\n")
-                .append(clazzLowerCase).append(".").append(method.getName()).append("(").append(property).append(");\n")
-                .append(clazzLowerCase).append(".onUpdate();\n")
-                .append("} finally {\n")
-                .append("mirrorLock.unlock();\n")
+                .append("if(!addLogSucc){")
+                .append(getMirrorSetterMethodName(property)).append("(").append(property).append(");\n")
                 .append("}\n")
                 .append("}\n")
                 .append(setValStr.toString());
+        method.addBodyLine(sb.toString());
+        return method;
+    }
+
+    public static Method getJavaBeansMirrorSetter(IntrospectedColumn introspectedColumn,
+                                            Context context,
+                                            IntrospectedTable introspectedTable) {
+        FullyQualifiedJavaType fqjt = introspectedColumn
+                .getFullyQualifiedJavaType();
+        String property = introspectedColumn.getJavaProperty();
+
+        Method method = new Method();
+        method.setVisibility(JavaVisibility.PRIVATE);
+        method.setName(getMirrorSetterMethodName(property));
+        method.addParameter(new Parameter(true, fqjt, property));
+        context.getCommentGenerator().addSetterComment(method,
+                introspectedTable, introspectedColumn);
+
+        FullyQualifiedJavaType type = new FullyQualifiedJavaType(
+                introspectedTable.getBaseRecordType());
+
+        StringBuilder setValStr = new StringBuilder();
+        if (introspectedColumn.isStringColumn() && isTrimStringsEnabled(introspectedColumn)) {
+            setValStr.append("this."); //$NON-NLS-1$
+            setValStr.append(property);
+            setValStr.append(" = "); //$NON-NLS-1$
+            setValStr.append(property);
+            setValStr.append(" == null ? null : "); //$NON-NLS-1$
+            setValStr.append(property);
+            setValStr.append(".trim();"); //$NON-NLS-1$
+        } else {
+            setValStr.append("this."); //$NON-NLS-1$
+            setValStr.append(property);
+            setValStr.append(" = "); //$NON-NLS-1$
+            setValStr.append(property);
+            setValStr.append(';');
+        }
+
+        String clazz = type.getShortName();
+        String clazzLowerCase = type.getShortName().toLowerCase();
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("try{\n" +
+                "            while (!mirrorHolder.compareAndSet(NONE_THREAD, WRITE_THREAD)){\n" +
+                "                //spin\n" +
+                "            }\n")
+                .append(clazz).append(" ").append(clazzLowerCase).append("= getMirror();\n")
+                .append(clazzLowerCase).append(".").append(getSetterMethodName(property)).append("(").append(property).append(");\n")
+                .append(clazzLowerCase).append(".onUpdate();\n")
+                .append("} finally {\n")
+                .append("mirrorHolder.set(NONE_THREAD);\n")
+                .append("}\n");
         method.addBodyLine(sb.toString());
         return method;
     }
@@ -371,19 +424,13 @@ public class JavaBeansUtil {
                 new FullyQualifiedJavaType(table.getBaseRecordType());
 
         StringBuilder sb = new StringBuilder();
-        sb.append("if(mirrorEntity != null && mirrorLock.tryLock()){\n")
-                .append("Role mirror = null;\n")
-                .append("try{\n")
-                .append("if (mirrorEntity != null) {\n")
-                .append("mirror = mirrorEntity.cast();\n")
-                .append("mirrorEntity = null;\n")
-                .append("}\n")
-                .append("} finally {\n")
-                .append("mirrorLock.unlock();\n")
-                .append("}\n")
-                .append("if(mirror != null && mirror.mark == UPDATE){\n")
+        sb.append(type.getShortName()).append(" mirror = getMirrorThenClear();\n")
+                .append("if (mirror == null) { return; }\n")
+                .append("switch (mirror.mark){\n")
+                .append("case UPDATE : {\n")
                 .append("MapperMgr.getMapper(").append(type.getShortName()).append("Mapper.class)")
                 .append(".updateByPrimaryKeySelective(mirror);\n")
+                .append("break;\n")
                 .append("}\n")
                 .append("}");
         method.addBodyLine(sb.toString());
